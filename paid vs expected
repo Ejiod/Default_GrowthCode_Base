@@ -1,0 +1,38 @@
+with payment as (SELECT  loan_loan.approval_datetime::date as "approval_date",payment_datetime,
+        case when lifecycle_status = 1 then 'Active'
+             when lifecycle_status = 2 then 'Overdue'
+             when lifecycle_status = 3 then 'Defaulted'
+             when lifecycle_status = 4 then 'Paid'
+             when lifecycle_status = 5 then 'Paid Defaulted'
+         end as lifecycle_status,
+        loan_loan.id, 
+        case when cardinal < 5 then 'C'||cardinal
+             when cardinal >= 5 and cardinal <= 7 then 'C5 - C7'
+            else 'C8+' end as cardinal,
+        transaction_transaction.amount/100 AS payment_amount,
+        CASE WHEN transaction_transaction.method IN (1,2,3,4,5,6) THEN 'Bank Transfer'
+             WHEN transaction_transaction.method = 24 THEN 'Monnify'
+             WHEN transaction_transaction.method = 15 THEN 'Paystack User-Initiated'
+             WHEN transaction_transaction.method = 16 THEN 'Paystack Auto-debit'
+             WHEN transaction_transaction.method = 12 THEN 'Rave Auto-debit'
+         ELSE NULL END AS "channel",
+        CASE    
+        WHEN accounts_user.employment_status = 6 THEN 'Self-Employed'
+        WHEN accounts_user.employment_status = 0 THEN 'Employed' else 'Others' END AS emp_status,
+        loan_loan.principal/100 + loan_loan.interest/100 as expected_repayment,
+        admin_loanrefund.amount as refunded,
+         (transaction_transaction.amount/100)::decimal/ (loan_loan.principal/100 + loan_loan.interest/100)::decimal*100 as PvE,
+        admin_loanrefund.refund_datetime
+FROM loan_loan
+LEFT JOIN transaction_transaction ON loan_loan.id = transaction_transaction.loan_id
+LEFT JOIN admin_loanrefund ON loan_loan.id = admin_loanrefund.loan_id
+LEFT JOIN accounts_user ON loan_loan.user_id = accounts_user.id
+WHERE payment_datetime::date >= '2021-01-01'
+ AND transaction_transaction.transaction_type = 1 and cardinal = 8
+ AND transaction_transaction.status = 2
+ AND lifecycle_status in (1,2,3,4,5) 
+ORDER BY application_datetime::date)
+
+SELECT date_trunc('week',payment_datetime) as payment_date,emp_status,sum(payment_amount)/sum(expected_repayment)::decimal*100 as paid_vs_expected 
+from payment
+group by 1 ,2
