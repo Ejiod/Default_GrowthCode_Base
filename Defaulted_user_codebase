@@ -1,0 +1,11 @@
+
+SELECT DISTINCT
+  last_value(deviceinfo_locationinfo.user_id) OVER w as user_id_,
+  last_value(longitude::float) OVER w as long,
+  last_value(latitude::float) OVER w as lat
+FROM deviceinfo_locationinfo 
+left join loan_loan on loan_loan.user_id = deviceinfo_locationinfo.user_id
+where deviceinfo_locationinfo.updated_datetime >= NOW() - '1 day'::INTERVAL 
+and  lifecycle_status = '3'
+WINDOW w AS (ORDER BY deviceinfo_locationinfo.user_id DESC);
+
