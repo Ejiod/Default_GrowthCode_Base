@@ -1,0 +1,61 @@
+WITH potential as (
+    SELECT
+        loan_loan.principal / 100 as principal,
+        loan_loan.next_payment_date::date + interval '91 days' as default_date,
+        
+        CASE 
+             WHEN next_payment_date::date + interval '91 days' < NOW()::date AND lifecycle_status <> 5 THEN principal_defaulted / 100
+             WHEN next_payment_date::date + interval '91 days' >= NOW()::date AND lifecycle_status <> 4  THEN balance / 100
+        END AS default_potential,
+        
+        CASE WHEN repayment_datetime::date <= next_payment_date::date + interval '3 days' AND lifecycle_status = 4 THEN principal / 100 END
+        AS paid_on_time,
+        
+        CASE WHEN 
+            repayment_datetime::date > next_payment_date::date + interval '3 days' AND 
+            repayment_datetime::date < next_payment_date::date + interval '91 days' AND 
+            lifecycle_status in (4) THEN principal / 100
+        END AS CC_converted,
+       CASE 
+            WHEN accounts_user.employment_status = 0 THEN 'Employed private sector' 
+            WHEN accounts_user.employment_status = 5 THEN 'Civil / Public Servant'
+            
+            WHEN accounts_user.employment_status = 1 THEN 'Business Owner'
+            WHEN accounts_user.employment_status = 6 THEN 'Self-Employed'
+            WHEN accounts_user.employment_status = 3 THEN 'Unemployed' 
+            WHEN accounts_user.employment_status = 8 THEN 'Unemployed' END AS employment_status_,
+    CASE   WHEN loan_loan.cardinal < 10 then 'C'||cardinal  else 'C10+' end as cardinal
+    FROM loan_loan 
+    LEFT JOIN loan_loantype ON loan_loan.loan_type_id = loan_loantype.id
+    LEFT JOIN loan_loanproduct ON loan_loan.product_id = loan_loanproduct.id
+    LEFT JOIN accounts_dashboarduser ON loan_loan.loan_officer_id=accounts_dashboarduser.id
+    LEFT JOIN accounts_user ON loan_loan.user_id = accounts_user.id
+    WHERE loan_loan.lifecycle_status IN (2,3,4,5)
+        AND is_fraudulent = false
+        AND disbursal_status = 1
+        AND is_rescheduled = false
+),
+    
+sum_table as (
+        SELECT 
+            date_trunc('month', default_date) as date,employment_status_,cardinal,
+            sum(default_potential) as default_potential,
+            sum(paid_on_time) as paid_on_time,
+            sum(CC_converted) as CC_conversion,
+            sum(principal) as principal
+        FROM potential
+        WHERE default_date between '2021-01-01' AND '2022-01-31'
+        GROUP BY default_date,employment_status_,cardinal
+        ORDER BY default_date
+)
+
+SELECT 
+    date,employment_status_,cardinal,
+    SUM(default_potential) / SUM(principal) *100 as "%Default (inc. partial payments)",
+    ((SUM(principal)*100-SUM(paid_on_time)*100)-SUM(CC_conversion)*100)/SUM(principal) as "%Default (only fully paid)",
+    SUM(paid_on_time) / SUM(principal) * 100 as "%Paid on time",
+    (SUM(CC_conversion) / (SUM(principal) - SUM(paid_on_time)))*100 as "%CC conversion rate",
+    SUM(principal) as "Amount defaulting"
+FROM sum_table
+GROUP BY date,employment_status_,cardinal
+ORDER BY date ASC
