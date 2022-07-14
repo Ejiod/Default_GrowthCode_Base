@@ -1,0 +1,20 @@
+
+
+WITH loans AS (SELECT user_id, id, cardinal, DATE_TRUNC('week', approval_datetime) AS cohort_week,lifecycle_status,
+date_trunc('week',next_payment_date::date + interval '90 days')  as defaulted_month,
+principal/100 AS principal, balance/100 AS balance, repaid/100 AS repaid, interest/100 AS interest, 
+                principal_defaulted/100 AS principal_defaulted, CASE WHEN repayment_datetime <= last_payment_date THEN 'YES' ELSE 'NO' END AS early_repayment, lifecycle_status 
+                FROM loan_loan 
+                WHERE product_id = 8 
+                AND approval_datetime::DATE >= '2021-06-01' and {{cardinal}} and {{cohort}}
+                AND lifecycle_status IN (1,2,3,4,5)
+                )
+
+SELECT defaulted_month,sum(principal_defaulted) as defaulted_amount,
+sum(principal_defaulted)::float*100/sum(principal)::float as default_rate
+FROM accounts_user a 
+LEFT JOIN loans  ON (a.id = loans.user_id)
+LEFT JOIN credibuilder_usercredibuildertype  ON credibuilder_usercredibuildertype.user_id = a.id
+WHERE a.experiments::TEXT LIKE '%ER170_credibuilder_batch2%'
+and {{level}} and {{rank}} 
+group by 1
